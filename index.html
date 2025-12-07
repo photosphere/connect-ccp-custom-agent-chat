@@ -312,8 +312,8 @@
               autoClose: true, // optional, defaults to `false`
               height: 600, // optional, defaults to 578
               width: 400, // optional, defaults to 433
-              top: 0, // optional, defaults to 0
-              left: 0, // optional, defaults to 0
+              top: (window.screen.height - 600) / 2, // center vertically
+              left: (window.screen.width - 400) / 2, // center horizontally
             },
             region: instanceRegion, // REQUIRED for `CHAT`, optional otherwise
             softphone: {
@@ -456,7 +456,7 @@
         return currentTime;
       }
 
-      async function getChatMessage(response, role) {
+      async function getChatMessage(response, role, controller) {
         if (response.data) {
           // Handle MESSAGE type
           if (response.data.Type === "MESSAGE") {
@@ -492,30 +492,45 @@
               // Create a hyperlink for each attachment
               var attachmentContent = "";
 
-              const awsSdkResponse = await window.controller.downloadAttachment(
-                {
-                  attachmentId: attachment.AttachmentId,
+              // Use the passed controller or fall back to window.controller
+              const activeController = controller || window.controller;
+              if (!activeController) {
+                logOutput("Error: No controller available for downloading attachment");
+                attachmentContent = '<span style="color: red;">Error: Unable to download attachment</span>';
+              } else {
+                const awsSdkResponse = await activeController.downloadAttachment(
+                  {
+                    attachmentId: attachment.AttachmentId,
+                  }
+                );
+                var attachmentUrl = URL.createObjectURL(awsSdkResponse);
+
+                if (attachment.ContentType == "image/png") {
+                  var attachmentImg =
+                    '<img src="' +
+                    attachmentUrl +
+                    '" style="max-width: 100%; height: auto;"></img>';
+                  attachmentContent += attachmentImg;
                 }
-              );
-              var attachmentUrl = URL.createObjectURL(awsSdkResponse);
 
-              if (attachment.ContentType == "image/png") {
-                var attachmentImg =
-                  '<img src="' +
+                if (attachment.ContentType == "audio/x-wav") {
+                  var attachmentAudio =
+                    '<audio controls style="max-width: 100%;"><source src="' +
+                    attachmentUrl +
+                    '" type="audio/wav">Your browser does not support the audio element.</audio>';
+                  attachmentContent += attachmentAudio;
+                }
+
+                var attachmentLink =
+                  '<a href="' +
                   attachmentUrl +
-                  '" style="max-width: 100%; height: auto;"></img>';
-                attachmentContent += attachmentImg;
+                  '" download="' +
+                  attachment.AttachmentName +
+                  '" >' +
+                  attachment.AttachmentName +
+                  "</a>";
+                attachmentContent += attachmentLink;
               }
-
-              var attachmentLink =
-                '<a href="' +
-                attachmentUrl +
-                '" download="' +
-                attachment.AttachmentName +
-                '" >' +
-                attachment.AttachmentName +
-                "</a>";
-              attachmentContent += attachmentLink;
 
               content +=
                 '<div class="attachment-item">' + attachmentContent + "</div>";
@@ -532,11 +547,15 @@
       }
 
       async function addChatMessage(response, contactId = null) {
+        const targetContactId = contactId || window.currentContactId;
+        const controller = targetContactId ? window.controllers[targetContactId] : window.controller;
+        
         var message = await getChatMessage(
           response,
-          response.data.ParticipantRole == "AGENT" ? "sent" : "received"
+          response.data.ParticipantRole == "AGENT" ? "sent" : "received",
+          controller
         );
-        const targetContactId = contactId || window.currentContactId;
+        
 
         if (targetContactId) {
           // Store message for this contact
@@ -606,7 +625,16 @@
               // Create a hyperlink for each attachment
               var attachmentContent = "";
 
-              const awsSdkResponse = await window.controller.downloadAttachment(
+              // Use the controller for this specific contact
+              const controller = window.controllers[contactId] || window.controller;
+              if (!controller) {
+                logOutput("Error: No controller available for downloading attachment in transcript");
+                attachmentContent = '<span style="color: red;">Error: Unable to download attachment</span>';
+                content += '<div class="attachment-item">' + attachmentContent + "</div>";
+                continue;
+              }
+
+              const awsSdkResponse = await controller.downloadAttachment(
                 {
                   attachmentId: attachment.AttachmentId,
                 }
@@ -619,6 +647,14 @@
                   attachmentUrl +
                   '" style="max-width: 100%; height: auto;"></img>';
                 attachmentContent += attachmentImg;
+              }
+
+              if (attachment.ContentType == "audio/x-wav") {
+                var attachmentAudio =
+                  '<audio controls style="max-width: 100%;"><source src="' +
+                  attachmentUrl +
+                  '" type="audio/wav">Your browser does not support the audio element.</audio>';
+                attachmentContent += attachmentAudio;
               }
 
               var attachmentLink =
