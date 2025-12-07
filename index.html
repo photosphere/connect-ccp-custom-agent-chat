@@ -297,6 +297,20 @@
         connect.contact(subscribeToContactEvents);
 
         connect.agent(subscribeToAgentEvents);
+
+        // Manually trigger agent info display after initialization
+        setTimeout(() => {
+          try {
+            const agent = new lily.Agent();
+            if (agent && agent.getName()) {
+              showAgentLoginInfo(agent);
+              loadAgentStates();
+              loadQuickConnects();
+            }
+          } catch (e) {
+            logOutput("等待agent初始化: " + e.message);
+          }
+        }, 1000);
       }
 
       function initCore(instanceCCPURL, loginURL, instanceRegion) {
@@ -916,6 +930,8 @@
 
         agent.onStateChange((event) => {
           showAgentStatus("onStateChange", agent);
+          // Update agent states dropdown when state changes
+          loadAgentStates();
         });
 
         agent.onOffline((event) => {
@@ -925,6 +941,9 @@
 
         agent.onRefresh((event) => {
           logOutput("Agent onRefresh");
+          // Refresh agent info on refresh event
+          showAgentLoginInfo(agent);
+          loadAgentStates();
         });
 
         agent.onRoutable((event) => {
@@ -1439,6 +1458,12 @@
         // Load layout on page load
         loadLayout();
       })();
+
+      // Auto-initialize on page load to restore session
+      window.addEventListener('DOMContentLoaded', function() {
+        logOutput("页面加载完成，尝试恢复会话...");
+        init();
+      });
     </script>
   </body>
 </html>
