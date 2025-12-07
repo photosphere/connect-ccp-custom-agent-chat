@@ -430,14 +430,24 @@
       }
 
       function sendChatMessage() {
-        if (window.controller) {
+        // Try to get controller from current contact if window.controller is not set
+        const controller = window.controller || (window.currentContactId && window.controllers[window.currentContactId]);
+        
+        if (controller) {
           var msg = document.getElementById("txtMessage").value;
-          window.controller.sendMessage({
+          if (!msg || msg.trim() === "") {
+            logOutput("消息内容为空，未发送");
+            return;
+          }
+          controller.sendMessage({
             contentType: "text/plain",
             message: msg,
           });
           document.getElementById("txtMessage").value = "";
           logOutput("send message:" + msg);
+        } else {
+          logOutput("错误: 没有可用的聊天控制器，请先选择一个联系人");
+          alert("请先选择一个联系人");
         }
       }
 
@@ -875,6 +885,11 @@
         window.currentContactId = contact.contactId;
         window.contact = contact;
         window.controller = window.controllers[contact.contactId];
+        
+        // Log warning if controller is not ready yet
+        if (!window.controller) {
+          logOutput("警告: 联系人 " + contact.contactId + " 的控制器尚未初始化");
+        }
 
         // Clear unread count for this contact
         if (window.unreadCounts && window.unreadCounts[contact.contactId]) {
@@ -941,9 +956,6 @@
 
         agent.onRefresh((event) => {
           logOutput("Agent onRefresh");
-          // Refresh agent info on refresh event
-          showAgentLoginInfo(agent);
-          loadAgentStates();
         });
 
         agent.onRoutable((event) => {
@@ -964,6 +976,9 @@
 
         agent.onWebSocketConnectionGained((event) => {
           logOutput("Agent onWebSocketConnectionGained");
+          // Update agent info when WebSocket connection is gained
+          showAgentLoginInfo(agent);
+          loadAgentStates();
         });
 
         agent.onAfterCallWork((event) => {
