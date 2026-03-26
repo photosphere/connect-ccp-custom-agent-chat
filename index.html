@@ -62,6 +62,55 @@
         opacity: 1;
         background-color: white;
       }
+      /* Selected participant highlight */
+      .participant-selected {
+        background-color: #3b82f6 !important;
+        border-left: 5px solid #1d4ed8 !important;
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35) !important;
+        color: white !important;
+        position: relative;
+      }
+      .participant-selected .font-semibold {
+        color: white !important;
+      }
+      .participant-selected .text-xs {
+        color: rgba(255, 255, 255, 0.85) !important;
+      }
+      .participant-selected .btn-end {
+        background-color: white !important;
+        color: #ef4444 !important;
+        border-color: white !important;
+        font-weight: 600;
+      }
+      .participant-selected .btn-end:hover {
+        background-color: #fee2e2 !important;
+      }
+      .participant-selected .btn-clear {
+        background-color: rgba(255, 255, 255, 0.2) !important;
+        color: white !important;
+        border-color: rgba(255, 255, 255, 0.5) !important;
+        font-weight: 600;
+      }
+      .participant-selected .btn-clear:hover {
+        background-color: rgba(255, 255, 255, 0.35) !important;
+      }
+      .participant-selected .btn-accept {
+        background-color: white !important;
+        color: #16a34a !important;
+        font-weight: 600;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+      }
+      .participant-selected .btn-accept:hover {
+        background-color: #f0fdf4 !important;
+      }
+      .participant-selected .btn-reject {
+        background-color: rgba(255, 255, 255, 0.2) !important;
+        color: white !important;
+        font-weight: 600;
+      }
+      .participant-selected .btn-reject:hover {
+        background-color: rgba(255, 255, 255, 0.35) !important;
+      }
     </style>
   </head>
 
@@ -752,8 +801,8 @@
                             }-indicator">连接中...</div>
                         </div>
                         <div class="flex gap-1">
-                            <button class="px-2 py-1 text-xs bg-green-500 hover:bg-green-600 text-white rounded transition" onclick="AcceptContact()">接受</button>
-                            <button class="px-2 py-1 text-xs bg-red-500 hover:bg-red-600 text-white rounded transition" onclick="RejectContact()">拒绝</button>
+                            <button class="btn-accept px-2 py-1 text-xs bg-green-500 hover:bg-green-600 text-white rounded transition" onclick="AcceptContact()">接受</button>
+                            <button class="btn-reject px-2 py-1 text-xs bg-red-500 hover:bg-red-600 text-white rounded transition" onclick="RejectContact()">拒绝</button>
                         </div>
                     </div>
                 `;
@@ -803,10 +852,10 @@
                             }-indicator">已连接</div>
                         </div>
                         <div class="flex gap-1">
-                            <button class="px-2 py-1 text-xs border border-red-500 text-red-500 hover:bg-red-50 rounded transition" onclick="EndContact('${
+                            <button class="btn-end px-2 py-1 text-xs border border-red-500 text-red-500 hover:bg-red-50 rounded transition" onclick="EndContact('${
                               contact.contactId
                             }')">结束</button>
-                            <button class="px-2 py-1 text-xs border border-gray-400 text-gray-600 hover:bg-gray-50 rounded transition" onclick="ClearContact('${
+                            <button class="btn-clear px-2 py-1 text-xs border border-gray-400 text-gray-600 hover:bg-gray-50 rounded transition" onclick="ClearContact('${
                               contact.contactId
                             }')">清除</button>
                         </div>
@@ -845,7 +894,7 @@
                             <div class="text-xs text-yellow-600" id="${contact.contactId}-indicator">未接</div>
                         </div>
                         <div>
-                            <button class="px-2 py-1 text-xs border border-gray-400 text-gray-600 hover:bg-gray-50 rounded transition" onclick="ClearContact('${contact.contactId}')">清除</button>
+                            <button class="btn-clear px-2 py-1 text-xs border border-gray-400 text-gray-600 hover:bg-gray-50 rounded transition" onclick="ClearContact('${contact.contactId}')">清除</button>
                         </div>
                     </div>
                 `;
@@ -857,12 +906,7 @@
       function selectParticipant(contact) {
         // Remove active class from all participants
         document.querySelectorAll("#clist > li").forEach((item) => {
-          item.classList.remove(
-            "bg-blue-100",
-            "border-l-4",
-            "border-l-blue-600",
-            "shadow-md"
-          );
+          item.classList.remove("participant-selected");
         });
 
         const participantElement = document.getElementById(contact.contactId);
@@ -873,12 +917,7 @@
             "border-l-yellow-400"
           );
           // Add active class to selected participant
-          participantElement.classList.add(
-            "bg-blue-100",
-            "border-l-4",
-            "border-l-blue-600",
-            "shadow-md"
-          );
+          participantElement.classList.add("participant-selected");
         }
 
         // Update current contact and controller
