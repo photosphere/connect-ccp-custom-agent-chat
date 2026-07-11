@@ -255,7 +255,7 @@
             ></select>
             <button
               class="px-4 py-1.5 bg-white border border-blue-500 text-blue-500 hover:bg-blue-50 rounded-lg text-sm font-medium transition"
-              onclick="TransferChat()"
+              onclick="transferChat()"
             >
               转接
             </button>
@@ -276,7 +276,10 @@
           <h2 class="text-sm font-semibold text-gray-700">参与者信息</h2>
         </div>
 
-        <div class="p-4 space-y-4" id="participantInfo">
+        <!-- 未选中联系人时不显示任何内容 -->
+        <div id="participantEmpty"></div>
+
+        <div class="p-4 space-y-4 hidden" id="participantInfo">
           <div>
             <div
               class="text-xs font-semibold text-gray-500 uppercase tracking-wide"
@@ -360,9 +363,11 @@
           this.unreadCounts = {};
         },
 
-        /** 获取指定联系人的控制器 */
+        /** 获取指定联系人的控制器（忽略初始化占位符） */
         getController(contactId) {
-          return this.controllers[contactId] || null;
+          const controller = this.controllers[contactId];
+          // 初始化期间用 true 作为占位符，此时视为尚无可用控制器
+          return controller && controller !== true ? controller : null;
         },
 
         /** 获取当前活跃的控制器 */
@@ -383,6 +388,16 @@
       /** 滚动元素到底部 */
       function scrollToBottom(element) {
         element.scrollTop = element.scrollHeight;
+      }
+
+      /** 获取 Streams Agent 实例（失败返回 null） */
+      function getAgent() {
+        try {
+          return new lily.Agent();
+        } catch (e) {
+          logOutput("获取 Agent 失败: " + e.message);
+          return null;
+        }
       }
 
       // ============================================================
@@ -453,38 +468,31 @@
       // 联系人信息提取
       // ============================================================
 
-      /** 安全获取客户名称 */
-      function getCustomerName(contact) {
+      /** 安全获取客户信息（名称/邮箱），统一读取一次 originalInfo */
+      function getCustomerInfo(contact) {
         try {
           const customerConn = contact.getConnections()[1];
           const info = customerConn.getMediaInfo().originalInfo;
-          return (info && info.customerName) || "Anonymous";
+          return {
+            name: (info && info.customerName) || "Anonymous",
+            email: (info && info.customerEmail) || null,
+          };
         } catch (e) {
-          return "Anonymous";
+          return { name: "Anonymous", email: null };
         }
       }
 
-      /** 安全获取客户邮箱 */
-      function getCustomerEmail(contact) {
-        try {
-          const customerConn = contact.getConnections()[1];
-          const info = customerConn.getMediaInfo().originalInfo;
-          return (info && info.customerEmail) || null;
-        } catch (e) {
-          return null;
-        }
+      /** 安全获取客户名称 */
+      function getCustomerName(contact) {
+        return getCustomerInfo(contact).name;
       }
 
       /** 通过 contactId 查找联系人对象 */
       function getContact(contactId) {
-        try {
-          const agent = new lily.Agent();
-          const contacts = agent.getContacts();
-          return contacts.find((item) => item.contactId === contactId) || null;
-        } catch (e) {
-          logOutput("查找联系人失败: " + e.message);
-          return null;
-        }
+        const agent = getAgent();
+        if (!agent) return null;
+        const contacts = agent.getContacts();
+        return contacts.find((item) => item.contactId === contactId) || null;
       }
 
       // ============================================================
@@ -614,19 +622,36 @@
       // 聊天消息管理
       // ============================================================
 
+      /** 用完整 HTML 重新渲染当前联系人的聊天窗口 */
+      function renderCurrentChat(contactId) {
+        if (contactId !== AppState.currentContactId) return;
+        const chatBox = $("txtChatBox");
+        chatBox.innerHTML = AppState.chatMessages[contactId] || "";
+        scrollToBottom(chatBox);
+      }
+
+      /** 追加单条消息 HTML 到当前聊天窗口（避免重建整个 DOM） */
+      function appendToCurrentChat(contactId, messageHTML) {
+        if (contactId !== AppState.currentContactId || !messageHTML) return;
+        const chatBox = $("txtChatBox");
+        chatBox.insertAdjacentHTML("beforeend", messageHTML);
+        scrollToBottom(chatBox);
+      }
+
       /** 添加实时聊天消息 */
       async function addChatMessage(response, contactId) {
+        if (!response || !response.data) return;
+
         const targetContactId = contactId || AppState.currentContactId;
         if (!targetContactId) return;
 
         const controller = AppState.getController(targetContactId);
         const message = await renderChatMessage(response, controller);
+        if (!message) return;
 
-        // 存储消息
-        if (!AppState.chatMessages[targetContactId]) {
-          AppState.chatMessages[targetContactId] = "";
-        }
-        AppState.chatMessages[targetContactId] += message;
+        // 存储消息（累积 HTML，供切换联系人时重新渲染）
+        AppState.chatMessages[targetContactId] =
+          (AppState.chatMessages[targetContactId] || "") + message;
 
         // 非当前联系人的客户消息 → 增加未读计数
         const isFromCustomer = response.data.ParticipantRole !== "AGENT";
@@ -638,12 +663,8 @@
           moveContactToTop(targetContactId);
         }
 
-        // 当前联系人 → 刷新显示
-        if (targetContactId === AppState.currentContactId) {
-          const chatBox = $("txtChatBox");
-          chatBox.innerHTML = AppState.chatMessages[targetContactId];
-          scrollToBottom(chatBox);
-        }
+        // 当前联系人 → 仅追加新消息，避免重建整个聊天窗口
+        appendToCurrentChat(targetContactId, message);
       }
 
       /** 加载历史聊天记录 */
@@ -671,12 +692,7 @@
         }
 
         AppState.chatMessages[contactId] = messages;
-
-        if (contactId === AppState.currentContactId) {
-          const chatBox = $("txtChatBox");
-          chatBox.innerHTML = messages;
-          scrollToBottom(chatBox);
-        }
+        renderCurrentChat(contactId);
       }
 
       /** 发送聊天消息 */
@@ -703,9 +719,7 @@
 
       /** 加载指定联系人的聊天消息到显示区域 */
       function loadChatMessages(contactId) {
-        const chatBox = $("txtChatBox");
-        chatBox.innerHTML = AppState.chatMessages[contactId] || "";
-        scrollToBottom(chatBox);
+        renderCurrentChat(contactId);
       }
 
       /** 清空聊天窗口 */
@@ -901,11 +915,16 @@
           updateUnreadBadge(contact.contactId);
         }
 
-        // 更新右侧参与者信息面板
-        $("participantName").textContent = getCustomerName(contact);
+        // 显示参与者信息面板，隐藏空状态
+        $("participantInfo").classList.remove("hidden");
+        $("participantEmpty").classList.add("hidden");
+
+        // 更新右侧参与者信息面板（客户信息一次读取）
+        const customer = getCustomerInfo(contact);
+        $("participantName").textContent = customer.name;
         $("participantContactId").textContent = contact.contactId;
         $("participantStatus").textContent = contact.getState().type;
-        $("participantEmail").textContent = getCustomerEmail(contact) || "-";
+        $("participantEmail").textContent = customer.email || "-";
 
         // 加载聊天消息
         loadChatMessages(contact.contactId);
@@ -999,15 +1018,20 @@
         }
 
         const initialConnection = contact.getInitialConnection();
-        if (initialConnection) {
-          initialConnection.destroy({
-            success() {},
-            failure(err) {
-              alert(err);
-            },
-          });
+        if (!initialConnection) {
+          logOutput("联系人无初始连接，无法结束: " + contactId);
+          return;
         }
 
+        initialConnection.destroy({
+          success() {},
+          failure(err) {
+            logOutput("结束联系人失败: " + JSON.stringify(err));
+            alert("结束联系人失败");
+          },
+        });
+
+        // 结束后进入 ACW 状态
         restartTimer(contactId, "ACW");
       }
 
@@ -1051,12 +1075,16 @@
         }
       }
 
-      /** 重置右侧参与者信息面板为默认值 */
+      /** 重置右侧参与者信息面板：隐藏字段，显示空状态 */
       function resetParticipantInfo() {
         $("participantName").textContent = "-";
         $("participantEmail").textContent = "-";
         $("participantStatus").textContent = "-";
         $("participantContactId").textContent = "-";
+
+        // 无选中联系人时隐藏信息字段，显示空状态提示
+        $("participantInfo").classList.add("hidden");
+        $("participantEmpty").classList.remove("hidden");
       }
 
       /** 转接聊天 */
@@ -1068,15 +1096,29 @@
         }
 
         try {
-          const agent = new lily.Agent();
-          const chatContacts = agent.getContacts(lily.ContactType.CHAT);
-          if (!chatContacts || chatContacts.length === 0) {
+          // 优先转接当前选中的联系人，回退到第一个聊天联系人
+          let contact =
+            (AppState.currentContactId &&
+              getContact(AppState.currentContactId)) ||
+            null;
+
+          if (!contact) {
+            const agent = getAgent();
+            const chatContacts = agent
+              ? agent.getContacts(lily.ContactType.CHAT)
+              : null;
+            contact = chatContacts && chatContacts[0];
+          }
+
+          if (!contact) {
             alert("没有可转接的聊天联系人");
             return;
           }
 
-          chatContacts[0].addConnection(endpoint, {
-            success() {},
+          contact.addConnection(endpoint, {
+            success() {
+              logOutput("转接聊天成功: " + endpoint.name);
+            },
             failure() {
               alert("转接聊天失败");
             },
@@ -1112,8 +1154,9 @@
 
       /** 设置座席状态 */
       function setAgentState(stateName) {
+        const agent = getAgent();
+        if (!agent) return;
         try {
-          const agent = new lily.Agent();
           const states = agent.getAgentStates();
           const state = states.find((s) => s.name === stateName);
           if (state) {
@@ -1131,8 +1174,9 @@
 
       /** 加载座席状态下拉列表 */
       function loadAgentStates() {
+        const agent = getAgent();
+        if (!agent) return;
         try {
-          const agent = new lily.Agent();
           const curState = agent.getState().name;
           const states = agent.getAgentStates();
           states.sort((a, b) => a.name.localeCompare(b.name));
@@ -1165,8 +1209,9 @@
 
       /** 加载快速连接列表 */
       function loadQuickConnects() {
+        const agent = getAgent();
+        if (!agent) return;
         try {
-          const agent = new lily.Agent();
           const queuesARNs = agent.getAllQueueARNs();
           agent.getEndpoints(queuesARNs, {
             success(data) {
@@ -1202,8 +1247,9 @@
 
       /** 加载未接联系人 */
       function loadMissedContact() {
+        const agent = getAgent();
+        if (!agent) return;
         try {
-          const agent = new lily.Agent();
           const contact = agent
             .getContacts()
             .find((c) => c.getState().type === "error");
@@ -1312,23 +1358,34 @@
       // ============================================================
 
       async function initChatController(contact) {
+        const contactId = contact.contactId;
+
+        // 防止重复初始化（onConnected 与 onAccepted 可能都会触发），
+        // 否则会重复订阅 onMessage 并重复加载历史记录。
+        if (AppState.controllers[contactId]) return;
+        // 占位，避免 getMediaController 异步期间的并发重复初始化
+        AppState.controllers[contactId] = true;
+
         const cnn = contact.getAgentConnection();
-        if (!cnn) return;
+        if (!cnn) {
+          delete AppState.controllers[contactId];
+          return;
+        }
 
         try {
           const controller = await cnn.getMediaController();
-          AppState.controllers[contact.contactId] = controller;
+          AppState.controllers[contactId] = controller;
 
           // 如果没有当前联系人，设为当前
           if (!AppState.currentContactId) {
-            AppState.currentContactId = contact.contactId;
+            AppState.currentContactId = contactId;
             AppState.controller = controller;
           }
 
           // 监听新消息
           controller.onMessage(async (response) => {
             logOutput("on message:" + JSON.stringify(response));
-            await addChatMessage(response, contact.contactId);
+            await addChatMessage(response, contactId);
           });
 
           // 加载历史记录
@@ -1337,7 +1394,7 @@
             sortOrder: "ASCENDING",
           });
           const { Transcript } = awsSdkResponse.data;
-          await addChatTranscriptMessage(Transcript, contact.contactId);
+          await addChatTranscriptMessage(Transcript, contactId);
           logOutput(JSON.stringify(Transcript));
 
           // 监听连接丢失
@@ -1346,6 +1403,10 @@
           });
         } catch (e) {
           logOutput("初始化聊天控制器失败: " + e.message);
+          // 初始化失败时移除占位，允许后续重试
+          if (AppState.controllers[contactId] === true) {
+            delete AppState.controllers[contactId];
+          }
         }
       }
 
@@ -1375,8 +1436,8 @@
             },
             chat: {
               disableRingtone: false,
-              ringtoneUrl:
-                "http://127.0.0.1:54093/agent-chat-demo-customized/ringtone.mp3",
+              // 使用相对路径，兼容本地开发与 S3/CloudFront 部署
+              ringtoneUrl: new URL("ringtone.mp3", window.location.href).href,
             },
             pageOptions: {
               enableAudioDeviceSettings: true,
@@ -1395,6 +1456,35 @@
       // 应用入口
       // ============================================================
 
+      /**
+       * 轮询等待座席快照就绪后恢复登录状态。
+       * 刷新页面时，内嵌 CCP 需要重新连接 shared worker 并加载座席数据，
+       * 通常耗时超过 1 秒，单次定时检查会错过，导致顶部仍显示“登录”按钮。
+       */
+      function restoreAgentSession(retriesLeft = 20, intervalMs = 500) {
+        const agent = getAgent();
+        let ready = false;
+        try {
+          ready = !!(agent && agent.getName());
+        } catch (e) {
+          ready = false;
+        }
+
+        if (ready) {
+          showAgentLoginInfo(agent);
+          loadAgentStates();
+          loadQuickConnects();
+          return;
+        }
+
+        if (retriesLeft > 0) {
+          setTimeout(
+            () => restoreAgentSession(retriesLeft - 1, intervalMs),
+            intervalMs
+          );
+        }
+      }
+
       function init() {
         window.localStorage.removeItem(
           "connectPopupManager::connect::loginPopup"
@@ -1407,41 +1497,29 @@
         connect.contact(subscribeToContactEvents);
         connect.agent(subscribeToAgentEvents);
 
-        // 延迟检查座席是否已初始化
-        setTimeout(() => {
-          try {
-            const agent = new lily.Agent();
-            if (agent && agent.getName()) {
-              showAgentLoginInfo(agent);
-              loadAgentStates();
-              loadQuickConnects();
-            }
-          } catch (e) {
-            logOutput("等待agent初始化: " + e.message);
-          }
-        }, 1000);
+        // 轮询恢复登录状态（刷新后座席数据可能延迟数秒才就绪）
+        restoreAgentSession();
       }
 
       function Logout() {
         hideAgentLoginInfo();
         fetch(logoutURL, { credentials: "include", mode: "no-cors" })
           .then(() => {
-            const eventBus = connect.core.getEventBus();
-            eventBus.trigger(connect.EventType.TERMINATE);
+            try {
+              const eventBus = connect.core.getEventBus();
+              eventBus.trigger(connect.EventType.TERMINATE);
+            } catch (e) {
+              logOutput("触发 TERMINATE 事件失败: " + e.message);
+            }
             clearChatWindow();
           })
-          .then(() => {
+          .catch((e) => {
+            logOutput("退出登录请求失败: " + e.message);
+          })
+          .finally(() => {
             window.location.reload();
           });
       }
-
-      // 兼容 HTML 中 onclick="TransferChat()" 的旧调用
-      function TransferChat() { transferChat(); }
-      function AcceptContact() { acceptContact(); }
-      function RejectContact() { rejectContact(); }
-      function EndContact(id) { endContact(id); }
-      function ClearContact(id) { clearContact(id); }
-      function SetAgentState(name) { setAgentState(name); }
 
       // ============================================================
       // 面板拖拽调整大小（带持久化）
